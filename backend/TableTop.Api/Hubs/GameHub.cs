@@ -1,24 +1,40 @@
 using Microsoft.AspNetCore.SignalR;
+using TableTop.Core.Entities;
+using TableTop.Core.Interfaces;
 using TableTop.Core.Services;
 
 namespace TableTop.Api.Hubs;
 
-public class GameHub(DiceService diceService) : Hub
+public class GameHub(
+    DiceService diceService,
+    IChatMessageRepository chatMessages,
+    RoomService roomService) : Hub
 {
     public async Task JoinRoom(string joinCode, string playerName)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, joinCode);
+        var room = await roomService.FindByJoinCodeAsync(joinCode);
+        if (room is null)
+        {
+            await Clients.Caller.SendAsync("MessageReceived", "⚠️", "Комната не найдена", DateTimeOffset.UtcNow);
+            return;
+        }
 
+        await Groups.AddToGroupAsync(Context.ConnectionId, joinCode);
         Context.Items["room"] = joinCode;
+        Context.Items["roomId"] = room.Id;
         Context.Items["name"] = playerName;
 
-        await Clients.OthersInGroup(joinCode)
-            .SendAsync("PlayerJoined", playerName);
+        var history = await chatMessages.GetLastAsync(room.Id, 50);
+        await Clients.Caller.SendAsync("History",
+            history.Select(m => new { playerName = m.PlayerName, text = m.Text, sentAt = m.SentAt }));
+
+        await Clients.OthersInGroup(joinCode).SendAsync("PlayerJoined", playerName);
     }
 
     public async Task SendMessage(string text)
     {
         if (Context.Items["room"] is not string joinCode ||
+            Context.Items["roomId"] is not Guid roomId ||
             Context.Items["name"] is not string playerName)
             return;
 
@@ -28,8 +44,18 @@ public class GameHub(DiceService diceService) : Hub
             return;
         }
 
+        var message = new ChatMessage
+        {
+            Id = Guid.NewGuid(),
+            RoomId = roomId,
+            PlayerName = playerName,
+            Text = text,
+            SentAt = DateTimeOffset.UtcNow
+        };
+        await chatMessages.AddAsync(message);
+
         await Clients.Group(joinCode)
-            .SendAsync("MessageReceived", playerName, text, DateTimeOffset.UtcNow);
+            .SendAsync("MessageReceived", playerName, text, message.SentAt);
     }
 
     private async Task HandleRoll(string joinCode, string playerName, string notation)

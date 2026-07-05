@@ -14,7 +14,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddScoped<IRoomRepository, RoomRepository>();
 builder.Services.AddScoped<RoomService>();
-
+builder.Services.AddScoped<IChatMessageRepository, ChatMessageRepository>();
 var app = builder.Build();
 
 app.MapGet("/ping", () => "pong");

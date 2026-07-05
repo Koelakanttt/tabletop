@@ -41,6 +41,9 @@ export default function Room() {
         roll,
       }])
     })
+    connection.on('History', (history: ChatMessage[]) => {
+      setMessages((prev) => [...history, ...prev])
+    })
     connection.onreconnected(async () => {
     await connection.invoke('JoinRoom', joinCode, playerName.trim())
       setMessages((prev) => [...prev, system('соединение восстановлено')])
